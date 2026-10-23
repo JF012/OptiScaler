@@ -578,10 +578,27 @@ void MenuOverlayDx::Present(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         if (!_dx12Device)
             LOG_DEBUG("D3D12CommandQueue captured");
 
+        // Use the typed ID3D12CommandQueue* we got from QueryInterface, not the raw IUnknown* pDevice.
+        // Casting an arbitrary IUnknown* to ID3D12CommandQueue* and calling GetDevice on it is only valid
+        // if both pointers are the same interface pointer, which is not guaranteed with wrapped objects.
         if (!CheckForRealObject(__FUNCTION__, pDevice, &currentSCCommandQueue))
-            currentSCCommandQueue = pDevice;
+            currentSCCommandQueue = cq;
 
-        if (((ID3D12CommandQueue*) currentSCCommandQueue)->GetDevice(IID_PPV_ARGS(&device12)) == S_OK)
+        auto getDeviceResult = ((ID3D12CommandQueue*) currentSCCommandQueue)->GetDevice(IID_PPV_ARGS(&device12));
+
+        // fallback to the QueryInterface result if the stored (real) queue could not give us the device
+        if (getDeviceResult != S_OK && (IUnknown*) cq != currentSCCommandQueue)
+            getDeviceResult = cq->GetDevice(IID_PPV_ARGS(&device12));
+
+        static bool queueInfoLogged = false;
+        if (!queueInfoLogged)
+        {
+            queueInfoLogged = true;
+            LOG_INFO("pDevice: {:X}, cq: {:X}, currentSCCommandQueue: {:X}, GetDevice result: {:X}", (size_t) pDevice,
+                     (size_t) cq, (size_t) currentSCCommandQueue, (unsigned int) getDeviceResult);
+        }
+
+        if (getDeviceResult == S_OK)
         {
             if (!_dx12Device)
                 LOG_DEBUG("D3D12Device captured");
